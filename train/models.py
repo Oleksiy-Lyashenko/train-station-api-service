@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import UniqueConstraint
@@ -6,6 +7,10 @@ from django.db.models import UniqueConstraint
 class Crew(models.Model):
     first_name = models.CharField(max_length=83)
     last_name = models.CharField(max_length=83)
+
+    @property
+    def full_name(self) -> str:
+        return f"{self.first_name} {self.last_name}"
 
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
@@ -45,7 +50,7 @@ class Train(models.Model):
 
 
 class Station(models.Model):
-    name = models.CharField(max_length=83)
+    name = models.CharField(max_length=83, unique=True)
     latitude = models.FloatField()
     longitude = models.FloatField()
 
@@ -61,23 +66,49 @@ class Route(models.Model):
         Station,
         on_delete=models.SET_NULL,
         null=True,
-        unique=True,
-        related_name="routes"
+        related_name="source"
     )
     destination = models.ForeignKey(
         Station,
         on_delete=models.SET_NULL,
         null=True,
-        unique=True,
-        related_name="routes"
+        related_name="destination"
     )
     distance = models.IntegerField()
+
+    @property
+    def name_of_full_way(self):
+        return f"{self.source} - {self.destination}"
 
     def __str__(self):
         return f"Route: {self.source.name} - {self.destination.name}, distance: {self.distance}"
 
     class Meta:
+        unique_together = ("source", "destination", "distance")
         ordering = ["-distance"]
+        constraints = [
+            UniqueConstraint(
+                fields=["source", "destination", "distance"],
+                name="unique_source_destination_distance")
+        ]
+
+    def clean(self):
+        if self.source.name == self.destination.name:
+            raise ValidationError(
+                f"Source and destination names should be difference"
+            )
+
+    def save(
+        self,
+        force_insert=False,
+        force_update=False,
+        using=None,
+        update_fields=None,
+    ):
+        self.full_clean()
+        return super(Route, self).save(
+            force_insert, force_update, using, update_fields
+        )
 
 
 class Journey(models.Model):
@@ -92,6 +123,10 @@ class Journey(models.Model):
         null=True,
         related_name="journeys"
     )
+    crew = models.ManyToManyField(
+        Crew,
+        related_name="journeys"
+    )
     departure_time = models.DateTimeField(auto_now=False)
     arrival_time = models.DateTimeField(auto_now=False)
 
@@ -103,8 +138,10 @@ class Journey(models.Model):
 
 
 class Order(models.Model):
-    created_at = models.DateTimeField()
-    user = models.CharField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE
+    )
 
     def __str__(self):
         return str(self.created_at)
@@ -137,7 +174,7 @@ class Ticket(models.Model):
         ]
 
     def clean(self):
-        if 1 <= self.seat <= self.journey.train.places_in_cargo:
+        if not (1 <= self.seat <= self.journey.train.places_in_cargo):
             raise ValidationError({
                 "seat": f"Seat must be in range [1, {self.journey.train.places_in_cargo}]"
             })
