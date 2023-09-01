@@ -76,6 +76,10 @@ class Route(models.Model):
     )
     distance = models.IntegerField()
 
+    @property
+    def name_of_full_way(self):
+        return f"{self.source} - {self.destination}"
+
     def __str__(self):
         return f"Route: {self.source.name} - {self.destination.name}, distance: {self.distance}"
 
@@ -134,7 +138,7 @@ class Journey(models.Model):
 
 
 class Order(models.Model):
-    created_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE
     )
@@ -170,7 +174,7 @@ class Ticket(models.Model):
         ]
 
     def clean(self):
-        if 1 <= self.seat <= self.journey.train.places_in_cargo:
+        if not (1 <= self.seat <= self.journey.train.places_in_cargo):
             raise ValidationError({
                 "seat": f"Seat must be in range [1, {self.journey.train.places_in_cargo}]"
             })
